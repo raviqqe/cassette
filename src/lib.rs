@@ -220,20 +220,8 @@
 use core::{
     future::Future,
     pin::Pin,
-    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    task::{Context, Poll, Waker},
 };
-
-fn no_op(_: *const ()) {}
-fn no_op_clone(_: *const ()) -> RawWaker {
-    noop_raw_waker()
-}
-
-static RWVT: RawWakerVTable = RawWakerVTable::new(no_op_clone, no_op, no_op, no_op);
-
-#[inline]
-fn noop_raw_waker() -> RawWaker {
-    RawWaker::new(core::ptr::null(), &RWVT)
-}
 
 /// A single-future non-blocking executor
 pub struct Cassette<T>
@@ -241,7 +229,6 @@ where
     T: Future + Unpin,
 {
     thing: T,
-    fake_wake: Waker,
     done: bool,
 }
 
@@ -277,14 +264,7 @@ where
     /// let mut cm = Cassette::new(x);
     /// ```
     pub fn new(thing: T) -> Self {
-        let raw_waker = noop_raw_waker();
-        let waker = unsafe { Waker::from_raw(raw_waker) };
-
-        Self {
-            thing,
-            fake_wake: waker,
-            done: false,
-        }
+        Self { thing, done: false }
     }
 
     /// Perform a "single step" of the future contained by this
@@ -329,7 +309,7 @@ where
     pub fn poll_on(&mut self) -> Option<<T as Future>::Output> {
         assert!(!self.done, "Polled a completed future");
 
-        let mut ctxt = Context::from_waker(&self.fake_wake);
+        let mut ctxt = Context::from_waker(Waker::noop());
         let y = Pin::new(&mut self.thing).poll(&mut ctxt);
         match y {
             Poll::Pending => None,
